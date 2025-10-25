@@ -1,5 +1,3 @@
-
-
 from pyspark import SparkContext
 import findspark
 findspark.init()
@@ -12,7 +10,6 @@ import time
 
 
 def run_training(workers = 4, partitions=None, cacheMode=None):
-
 
     sc = SparkContext(master=f"local[{workers}]", appName="TextFileExample")
 
