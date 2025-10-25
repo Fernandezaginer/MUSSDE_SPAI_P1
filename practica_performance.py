@@ -11,7 +11,7 @@ warnings.filterwarnings("ignore")
 import time
 
 
-def run_training(workers = 4, partitions=None):
+def run_training(workers = 4, partitions=None, cacheMode=None):
 
 
     sc = SparkContext(master=f"local[{workers}]", appName="TextFileExample")
@@ -24,7 +24,10 @@ def run_training(workers = 4, partitions=None):
 
 
     def readFile(filename):
-        rdd = sc.textFile(filename)
+        if cacheMode=="source" or cacheMode=="opt":
+            rdd = sc.textFile(filename).cache()
+        else:
+            rdd = sc.textFile(filename)
         def map_line(line):
             elements = [float(element) for element in line.split(",")]
             return (np.array(elements[:-1]), int(elements[-1]))
@@ -32,12 +35,25 @@ def run_training(workers = 4, partitions=None):
 
 
     def normalize (RDD_Xy):
-        rdd_col = RDD_Xy.map(lambda xy: (np.array(xy[:-1], dtype=float).flatten(), int(xy[-1])))
-        sum_vec = rdd_col.map(lambda xy: xy[0]).reduce(lambda a, b: a + b)
+        if cacheMode=="map":
+            rdd_col = RDD_Xy.map(lambda xy: (np.array(xy[:-1], dtype=float).flatten(), int(xy[-1]))).cache()
+            sum_vec = (rdd_col.map(lambda xy: xy[0]).cache()).reduce(lambda a, b: a + b)
+        elif cacheMode=="opt":
+            rdd_col = RDD_Xy.map(lambda xy: (np.array(xy[:-1], dtype=float).flatten(), int(xy[-1]))).cache()
+            sum_vec = rdd_col.map(lambda xy: xy[0]).reduce(lambda a, b: a + b)
+        else:
+            rdd_col = RDD_Xy.map(lambda xy: (np.array(xy[:-1], dtype=float).flatten(), int(xy[-1])))
+            sum_vec = rdd_col.map(lambda xy: xy[0]).reduce(lambda a, b: a + b)
         media = sum_vec / n
-        varianza = rdd_col.map(lambda v: (v[0]-media)**2).reduce(lambda a,b:a+b)/n
+        if cacheMode=="map":
+            varianza = (rdd_col.map(lambda v: (v[0]-media)**2).cache()).reduce(lambda a,b:a+b)/n
+        else:
+            varianza = rdd_col.map(lambda v: (v[0]-media)**2).reduce(lambda a,b:a+b)/n
         std=np.sqrt(varianza)
-        norm = rdd_col.map(lambda v: ((v[0] - media)/std, v[1]))
+        if cacheMode=="map" or cacheMode=="opt":
+            norm = rdd_col.map(lambda v: ((v[0] - media)/std, v[1])).cache()
+        else:
+            norm = rdd_col.map(lambda v: ((v[0] - media)/std, v[1]))
         return norm
 
     def train(RDD_Xy, iterations, learning_rate):
@@ -45,12 +61,19 @@ def run_training(workers = 4, partitions=None):
         W = np.array([np.random.normal(0, 1) for _ in range(X_SIZE)])
         b = 0
         def calculate_dw(rdd, W, b):
-            rdd = rdd.map(lambda xy: np.array([(sigma(np.dot(W, xy[0]) + b) - xy[1]) * x_i for x_i in xy[0]]))
-            dw = rdd.reduce(lambda a, b : a + b) / n
+            if cacheMode=="map":
+                rdd = rdd.map(lambda xy: np.array([(sigma(np.dot(W, xy[0]) + b) - xy[1]) * x_i for x_i in xy[0]])).cache()
+            else:
+                rdd = rdd.map(lambda xy: np.array([(sigma(np.dot(W, xy[0]) + b) - xy[1]) * x_i for x_i in xy[0]]))
+            dw = rdd.reduce(lambda a, b : a + b) / n           
             return dw
         
         def calculate_db(rdd, W, b):
-            rdd = rdd.map(lambda xy: sigma(np.dot(W, xy[0]) + b) - xy[1])
+            if cacheMode=="map":
+                rdd = rdd.map(lambda xy: sigma(np.dot(W, xy[0]) + b) - xy[1]).cache()
+            else:
+                rdd = rdd.map(lambda xy: sigma(np.dot(W, xy[0]) + b) - xy[1])
+            db = rdd.reduce(lambda a, b : a + b) / n        
             db = rdd.reduce(lambda a, b : a + b) / n
             return db
         
@@ -63,7 +86,10 @@ def run_training(workers = 4, partitions=None):
         return W, b
 
     def accuracy(w, b, RDD_Xy):
-        predictions = RDD_Xy.map(lambda v: predict(w, b, v[0]))
+        if cacheMode=="map":
+            predictions = RDD_Xy.map(lambda v: predict(w, b, v[0])).cache()
+        else:
+            predictions = RDD_Xy.map(lambda v: predict(w, b, v[0]))
         count = predictions.reduce(lambda a, b : a + b)
         return count/n
 
