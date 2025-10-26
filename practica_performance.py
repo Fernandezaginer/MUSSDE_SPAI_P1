@@ -3,6 +3,7 @@ import findspark
 findspark.init()
 
 import numpy as np
+import math
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -53,6 +54,15 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
             norm = rdd_col.map(lambda v: ((v[0] - media)/std, v[1]))
         return norm
 
+    def get_cost(rdd, W,  b):
+        sigma = lambda z : (1 / (1 + (np.e**(-z))))
+        # rdd = rdd.map(lambda xy: xy[1]*math.log(sigma(np.dot(W, xy[0]) + b))  +  (1 - xy[1])*math.log(1 - sigma(np.dot(W, xy[0]) + b)) )
+        # return rdd.reduce(lambda a, b : a + b) / rdd.count()
+        values = rdd.collect()
+        costs = [ -values[i][1]*math.log(sigma(np.dot(W, values[i][0]) + b))  -  (1 - values[i][1])*math.log(1 - sigma(np.dot(W, values[i][0]) + b))  for i in range(len(values)) ]
+        return sum(costs) / len(values)
+        
+
     def train(RDD_Xy, iterations, learning_rate):
         sigma = lambda z : (1 / (1 + (np.e**(-z))))
         W = np.array([np.random.normal(0, 1) for _ in range(X_SIZE)])
@@ -80,8 +90,8 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
             W = W - learning_rate * dw
             b = b - learning_rate * db
         
-        return W, b
-
+        return W, b, get_cost(RDD_Xy, W, b)
+    
     def accuracy(w, b, RDD_Xy):
         if cacheMode=="map":
             predictions = RDD_Xy.map(lambda v: predict(w, b, v[0])).cache()
@@ -110,7 +120,7 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
     if partitions != None:
         rdd_norm = rdd_norm.repartition(partitions)
     
-    W, b = train(rdd_norm, N_ITER, LEARNING_RATE)
+    W, b, cost_fnc = train(rdd_norm, N_ITER, LEARNING_RATE)
     acc = accuracy(W, b, rdd_norm)
 
     sc.stop()
@@ -118,7 +128,7 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
     execution_time = time.time() - start_time
     
     
-    return execution_time, acc
+    return execution_time, acc, cost_fnc
     
 
 
