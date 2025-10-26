@@ -14,7 +14,7 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
 
     sc = SparkContext(master=f"local[{workers}]", appName="TextFileExample")
 
-    DATA_FILE = "botnet_tot_syn_l_debug.csv"
+    DATA_FILE = "botnet_tot_syn_l.csv"
     X_SIZE = 11
     Y_SIZE = 1
     N_ITER = 10
@@ -99,6 +99,16 @@ def run_training(workers = 4, partitions=None, cacheMode=None):
             predictions = RDD_Xy.map(lambda v: predict(w, b, v[0]))
         count = predictions.reduce(lambda a, b : a + b)
         return count/n
+
+    def accuracy(w, b, RDD_Xy):
+        if cacheMode=="map":
+            predictions = RDD_Xy.map(lambda v: [predict(w, b, v[0]),v[1]]).cache()
+            correct_count = predictions.map(lambda v: 1 if v[0]==v[1] else 0).cache()
+        else:
+            predictions = RDD_Xy.map(lambda v: [predict(w, b, v[0]),v[1]])
+            correct_count = predictions.map(lambda v: 1 if v[0]==v[1] else 0)
+        count = correct_count.reduce(lambda a, b : a + b)
+        return count / RDD_Xy.count()
 
     def predict(w, b, data):
         sigma = lambda z : (1 / (1 + (np.e**(-z))))
